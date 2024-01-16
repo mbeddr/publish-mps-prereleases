@@ -1,5 +1,7 @@
 import jetbrains.buildServer.configs.kotlin.*
+import jetbrains.buildServer.configs.kotlin.buildSteps.gradle
 import jetbrains.buildServer.configs.kotlin.buildSteps.kotlinScript
+import jetbrains.buildServer.configs.kotlin.buildSteps.script
 
 /*
 The settings script is an entry point for defining a TeamCity
@@ -44,15 +46,13 @@ object Publish : BuildType({
     }
 
     steps {
-        kotlinScript {
-            name = "Experiment"
-            id = "Experiment"
-            content = """
-                println("Running mvn --version")
-                ProcessBuilder("mvn", "--version").redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start().waitFor()
-                
-                println("Running unzip --help")
-                ProcessBuilder("unzip", "--help").redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start().waitFor()
+        gradle {
+            tasks = ":find-latest-version:run"
+        }
+        script {
+            scriptContent = """
+                echo "Detected build ID: ${'$'}ARTIFACT_BUILD_ID"
+                echo "Detected version: ${'$'}ARTIFACT_VERSION"
             """.trimIndent()
         }
     }
