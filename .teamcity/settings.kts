@@ -2,6 +2,7 @@ import jetbrains.buildServer.configs.kotlin.*
 import jetbrains.buildServer.configs.kotlin.buildSteps.gradle
 import jetbrains.buildServer.configs.kotlin.buildSteps.kotlinScript
 import jetbrains.buildServer.configs.kotlin.buildSteps.script
+import jetbrains.buildServer.configs.kotlin.ui.add
 
 /*
 The settings script is an entry point for defining a TeamCity
@@ -40,6 +41,10 @@ object Publish : BuildType({
     enablePersonalBuilds = false
     type = BuildTypeSettings.Type.DEPLOYMENT
     maxRunningBuilds = 1
+
+    vcs {
+        add(DslContext.settingsRoot.id!!)
+    }
 
     params {
         param("env.teamcity_build_branch", "unused")
