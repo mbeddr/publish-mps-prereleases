@@ -17,7 +17,8 @@ private fun findLastSuccessfulBuild(): Build {
     val tc = TeamCityInstanceFactory.guestAuth("https://teamcity.jetbrains.com")
     val mpsToplevelProject = tc.project(ProjectId("MPS"))
 
-    val latestMpsProject = mpsToplevelProject.childProjects.filter { it.id.stringId.startsWith("MPS_20") }
+    val mps20Regex = Regex("20\\d\\d\\.\\d")
+    val latestMpsProject = mpsToplevelProject.childProjects.filter { it.id.stringId.startsWith("MPS_20") && it.name.matches(mps20Regex) }
         .maxByOrNull { it.id.stringId }
         ?: throw Exception("No MPS projects found. Found projects: ${mpsToplevelProject.childProjects}")
 
