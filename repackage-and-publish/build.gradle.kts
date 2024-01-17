@@ -21,7 +21,13 @@ tasks.register("checkAlreadyPublished") {
     doLast {
         val alreadyPublished = doesArtifactExistInRepository()
         println("##teamcity[setParameter name='alreadyPublished' value='$alreadyPublished']")
-        println("##teamcity[buildStatus text='MPS $version already exists in the repository']")
+
+        val status = if (alreadyPublished)
+            "MPS $version already exists in the repository"
+        else
+            "MPS $version will be uploaded to the repository"
+
+        println("##teamcity[buildStatus text='$status']")
     }
 }
 
