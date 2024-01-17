@@ -75,4 +75,5 @@ fun main(args: Array<String>) {
 
     println("##teamcity[setParameter name='env.ARTIFACT_BUILD_ID' value='${build.id.stringId}']")
     println("##teamcity[setParameter name='env.ARTIFACT_VERSION' value='${artifactVersion}']")
+    println("##teamcity[buildStatus text='Latest MPS prerelease build is ${artifactVersion}']")
 }

@@ -21,6 +21,7 @@ tasks.register("checkAlreadyPublished") {
     doLast {
         val alreadyPublished = doesArtifactExistInRepository()
         println("##teamcity[setParameter name='alreadyPublished' value='$alreadyPublished']")
+        println("##teamcity[buildStatus text='MPS $version already exists in the repository']")
     }
 }
 
@@ -98,3 +99,9 @@ val repo = publishing.repositories.maven("https://maven.pkg.github.com/mbeddr/pu
 
 fun getenvRequired(name: String) =
     System.getenv(name) ?: throw GradleException("Environment variable '$name' must be set")
+
+tasks.publish {
+    doLast {
+        println("##teamcity[buildStatus text='MPS $version successfully published']")
+    }
+}
