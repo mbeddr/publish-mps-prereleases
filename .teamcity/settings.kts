@@ -54,11 +54,14 @@ object Publish : BuildType({
         gradle {
             tasks = ":find-latest-version:run"
         }
-        script {
-            scriptContent = """
-                echo "Detected build ID: ${'$'}ARTIFACT_BUILD_ID"
-                echo "Detected version: ${'$'}ARTIFACT_VERSION"
-            """.trimIndent()
+        gradle {
+            tasks = ":repackage-and-publish:checkAlreadyPublished"
+        }
+        gradle {
+            conditions {
+                doesNotEqual("alreadyPublished", "true")
+            }
+            tasks = ":repackage-and-publish:publish"
         }
     }
 })
