@@ -2,6 +2,7 @@ import jetbrains.buildServer.configs.kotlin.*
 import jetbrains.buildServer.configs.kotlin.buildSteps.gradle
 import jetbrains.buildServer.configs.kotlin.buildSteps.kotlinScript
 import jetbrains.buildServer.configs.kotlin.buildSteps.script
+import jetbrains.buildServer.configs.kotlin.triggers.schedule
 import jetbrains.buildServer.configs.kotlin.ui.add
 
 /*
@@ -62,6 +63,21 @@ object Publish : BuildType({
                 doesNotEqual("alreadyPublished", "true")
             }
             tasks = ":repackage-and-publish:publish"
+        }
+    }
+
+    triggers {
+        schedule {
+            schedulingPolicy = cron {
+                seconds = "0"
+                minutes = "0"
+                hours = "*"
+                dayOfMonth = "?"
+                month = "*"
+                dayOfWeek = "*"
+                year = "*"
+            }
+            triggerBuild = always()
         }
     }
 })
