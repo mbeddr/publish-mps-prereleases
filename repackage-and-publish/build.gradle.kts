@@ -94,11 +94,11 @@ val prereleasePublication = publishing.publications.create<MavenPublication>("mp
     artifact(repackage)
 }
 
-val repo = publishing.repositories.maven("https://maven.pkg.github.com/mbeddr/publish-mps-prereleases") {
-    if (project.findProperty("gpr.user") != null) {
+val repo = publishing.repositories.maven("https://artifacts.itemis.cloud/repository/maven-mps-prereleases") {
+    if (project.findProperty("artifacts.itemis.cloud.user") != null) {
         credentials {
-            username = project.findProperty("gpr.user") as String?
-            password = project.findProperty("gpr.token") as String?
+            username = project.findProperty("artifacts.itemis.cloud.user") as String?
+            password = project.findProperty("artifacts.itemis.cloud.pw") as String?
         }
     }
 }
