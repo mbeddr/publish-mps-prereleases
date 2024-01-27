@@ -71,13 +71,14 @@ object Publish : BuildType({
             schedulingPolicy = cron {
                 seconds = "0"
                 minutes = "0"
-                hours = "*"
+                hours = "*/3"
                 dayOfMonth = "?"
                 month = "*"
                 dayOfWeek = "*"
                 year = "*"
             }
             triggerBuild = always()
+            withPendingChangesOnly = false
         }
     }
 })
