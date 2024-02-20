@@ -1,4 +1,4 @@
-Publishing of MPS prereleases (nightly builds) from [JetBrains TeamCity](https://teamcity.jetbrains.com)
+Publishing of MPS pre-releases (nightly builds) from [JetBrains TeamCity](https://teamcity.jetbrains.com)
 to [itemis Nexus](https://artifacts.itemis.cloud).
 
 Subprojects:
