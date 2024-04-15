@@ -54,6 +54,10 @@ object Publish : BuildType({
     steps {
         gradle {
             tasks = ":find-latest-version:run"
+            conditions {
+                doesNotExist("env.ARTIFACT_VERSION")
+                doesNotExist("env.ARTIFACT_BUILD_ID")
+            }
         }
         gradle {
             tasks = ":repackage-and-publish:checkAlreadyPublished"
