@@ -22,27 +22,27 @@ private fun findLastSuccessfulBuild(): Build {
         .maxByOrNull { it.id.stringId }
         ?: throw Exception("No MPS projects found. Found projects: ${mpsToplevelProject.childProjects}")
 
-    logger.fine("Latest project of MPS: $latestMpsProject")
+    logger.info("Latest project of MPS: $latestMpsProject")
 
     val projectName = "Distribution"
     val project = latestMpsProject.childProjects.singleOrNull { it.name == projectName }
         ?: throw Exception("Project '${latestMpsProject.name}' does not contain a subproject named '$projectName'")
 
-    logger.fine("Distribution project: $project")
+    logger.info("Distribution project: $project")
 
     logger.fine("Build configurations: ${project.buildConfigurations.map { it.id }}")
 
     val downloadableArtifactsConfig =
         project.buildConfigurations.single { it.id.stringId.endsWith("_Distribution_Binaries") }
 
-    logger.fine("Build configuration: $downloadableArtifactsConfig")
+    logger.info("Build configuration: $downloadableArtifactsConfig")
 
     val lastSuccessfulBuild = tc.builds()
         .fromConfiguration(downloadableArtifactsConfig.id)
         .latest()
         ?: throw Exception("Build configuration ${downloadableArtifactsConfig.id} does not have a successful build")
 
-    logger.fine("Last successful build: $lastSuccessfulBuild")
+    logger.info("Last successful build: $lastSuccessfulBuild")
     return lastSuccessfulBuild
 }
 
