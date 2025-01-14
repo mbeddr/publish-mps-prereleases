@@ -41,5 +41,9 @@ changeBuildType(RelativeId("Publish")) {
             }
             jdkHome = "%env.JDK_17_0_x64%"
         }
+        update<GradleBuildStep>(1) {
+            clearConditions()
+            jdkHome = "%env.JDK_17_0_x64%"
+        }
     }
 }
