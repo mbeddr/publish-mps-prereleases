@@ -45,5 +45,13 @@ changeBuildType(RelativeId("Publish")) {
             clearConditions()
             jdkHome = "%env.JDK_17_0_x64%"
         }
+        update<GradleBuildStep>(2) {
+            clearConditions()
+
+            conditions {
+                doesNotEqual("alreadyPublished", "true")
+            }
+            jdkHome = "%env.JDK_17_0_x64%"
+        }
     }
 }
