@@ -1,4 +1,5 @@
 import jetbrains.buildServer.configs.kotlin.*
+import jetbrains.buildServer.configs.kotlin.buildSteps.GradleBuildStep
 import jetbrains.buildServer.configs.kotlin.buildSteps.gradle
 import jetbrains.buildServer.configs.kotlin.buildSteps.kotlinScript
 import jetbrains.buildServer.configs.kotlin.buildSteps.script
@@ -68,6 +69,9 @@ object Publish : BuildType({
             }
             tasks = ":repackage-and-publish:publish"
         }
+
+        // Set the JDK for all Gradle steps to JDK 17-x64
+        items.filterIsInstance<GradleBuildStep>().forEach { it.jdkHome = "%env.JDK_17_0_x64%" }
     }
 
     triggers {
