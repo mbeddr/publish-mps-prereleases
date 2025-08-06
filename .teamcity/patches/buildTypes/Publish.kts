@@ -1,6 +1,7 @@
 package patches.buildTypes
 
 import jetbrains.buildServer.configs.kotlin.*
+import jetbrains.buildServer.configs.kotlin.triggers.ScheduleTrigger
 import jetbrains.buildServer.configs.kotlin.triggers.schedule
 import jetbrains.buildServer.configs.kotlin.ui.*
 
@@ -11,7 +12,7 @@ accordingly, and delete the patch script.
 */
 changeBuildType(RelativeId("Publish")) {
     triggers {
-        remove {
+        val trigger1 = find<ScheduleTrigger> {
             schedule {
                 schedulingPolicy = cron {
                     seconds = "0"
@@ -25,6 +26,10 @@ changeBuildType(RelativeId("Publish")) {
                 triggerBuild = always()
                 withPendingChangesOnly = false
             }
+        }
+        trigger1.apply {
+            enabled = false
+
         }
     }
 }
