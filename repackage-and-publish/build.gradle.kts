@@ -2,6 +2,7 @@ import de.undercouch.gradle.tasks.download.Download
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.*
+import groovy.json.JsonSlurper
 
 plugins {
     `maven-publish`
@@ -10,6 +11,53 @@ plugins {
 
 val mpsGroupId = "com.jetbrains.mps"
 val mpsArtifactId = "mps-prerelease"
+
+fun toSpdxIdentifier(licenseName: String): String {
+    return when (licenseName.trim()) {
+        "Apache 2.0", "Apache-2.0", "Apache License 2.0", "Apache License, Version 2.0" -> "Apache-2.0"
+        "BSD 2-Clause", "BSD-2-Clause", "Simplified BSD License" -> "BSD-2-Clause"
+        "BSD 3-Clause", "BSD-3-Clause", "New BSD License" -> "BSD-3-Clause"
+        "MIT", "MIT License" -> "MIT"
+        "EPL 1.0", "Eclipse Public License 1.0" -> "EPL-1.0"
+        "EPL 2.0", "Eclipse Public License 2.0" -> "EPL-2.0"
+        "GPL 2.0", "GPL-2.0", "GNU General Public License v2.0" -> "GPL-2.0"
+        "GPL 3.0", "GPL-3.0", "GNU General Public License v3.0" -> "GPL-3.0"
+        "LGPL 2.1", "LGPL-2.1", "GNU Lesser General Public License v2.1" -> "LGPL-2.1"
+        "LGPL 3.0", "LGPL-3.0", "GNU Lesser General Public License v3.0" -> "LGPL-3.0"
+        "MPL 2.0", "MPL-2.0", "Mozilla Public License 2.0" -> "MPL-2.0"
+        "CDDL 1.0", "CDDL-1.0", "Common Development and Distribution License 1.0" -> "CDDL-1.0"
+        "CDDL 1.1", "CDDL-1.1", "Common Development and Distribution License 1.1" -> "CDDL-1.1"
+        "ISC", "ISC License" -> "ISC"
+        "CC0 1.0", "CC0-1.0", "Creative Commons Zero v1.0 Universal" -> "CC0-1.0"
+        "Unlicense" -> "Unlicense"
+        "OFL", "OFL-1.1", "SIL Open Font License 1.1" -> "OFL-1.1"
+        "PSF", "PSF-2.0", "Python Software Foundation License" -> "PSF-2.0"
+        "Zlib", "zlib License" -> "Zlib"
+        "W3C", "W3C Software Notice and License" -> "W3C"
+        else -> licenseName // Return original if no mapping found
+    }
+}
+
+fun extractLicensesFromJson(jsonFile: File): Map<String, String?> {
+    val jsonSlurper = JsonSlurper()
+    val libraries = jsonSlurper.parse(jsonFile) as List<Map<String, Any?>>
+    
+    val licenseMap = mutableMapOf<String, String?>()
+    
+    libraries.forEach { lib ->
+        val licenseName = (lib["license"] as? String)?.trim()
+        val licenseUrl = lib["licenseUrl"] as? String
+        
+        if (!licenseName.isNullOrEmpty()) {
+            val spdxIdentifier = toSpdxIdentifier(licenseName)
+            if (!licenseMap.containsKey(spdxIdentifier)) {
+                licenseMap[spdxIdentifier] = licenseUrl
+            }
+        }
+    }
+    
+    return licenseMap
+}
 
 version = object {
     override fun toString(): String {
@@ -51,9 +99,45 @@ val repackage by tasks.registering(Zip::class) {
     includeEmptyDirs = false
 }
 
+val extractLicenses by tasks.registering {
+    dependsOn(download)
+    
+    val licensesFile = layout.buildDirectory.file("extracted-licenses.txt")
+    outputs.file(licensesFile)
+    
+    doLast {
+        val downloadedFile = download.get().outputFiles.single()
+        val zipFile = zipTree(downloadedFile)
+        
+        // Find the third-party-libraries.json file in the zip
+        val thirdPartyJsonFile = zipFile.files.find { it.name == "third-party-libraries.json" && it.path.contains("license") }
+        
+        if (thirdPartyJsonFile != null) {
+            val licenses = extractLicensesFromJson(thirdPartyJsonFile)
+            licensesFile.get().asFile.writeText(
+                licenses.entries.joinToString("\n") { "${it.key}|${it.value ?: ""}" }
+            )
+            logger.lifecycle("Extracted ${licenses.size} unique licenses")
+        } else {
+            logger.warn("third-party-libraries.json not found in downloaded ZIP")
+            licensesFile.get().asFile.writeText("")
+        }
+    }
+}
+
 fun getArtifactDownloadUrl(): String {
     val artifactBuildId = getenvRequired("ARTIFACT_BUILD_ID")
     return "https://teamcity.jetbrains.com/guestAuth/app/rest/builds/id:${artifactBuildId}/artifacts/content/MPS-${version}.zip"
+}
+
+val repo = publishing.repositories.maven("https://artifacts.itemis.cloud/repository/maven-mps-prereleases") {
+    name = "Maven"
+    if (project.findProperty("artifacts.itemis.cloud.user") != null) {
+        credentials {
+            username = project.findProperty("artifacts.itemis.cloud.user") as String?
+            password = project.findProperty("artifacts.itemis.cloud.pw") as String?
+        }
+    }
 }
 
 fun doesArtifactExistInRepository(): Boolean {
@@ -90,21 +174,51 @@ fun doesArtifactExistInRepository(): Boolean {
 val prereleasePublication = publishing.publications.create<MavenPublication>("mpsPrerelease") {
     groupId = mpsGroupId
     artifactId = mpsArtifactId
-
     artifact(repackage)
-}
-
-val repo = publishing.repositories.maven("https://artifacts.itemis.cloud/repository/maven-mps-prereleases") {
-    if (project.findProperty("artifacts.itemis.cloud.user") != null) {
-        credentials {
-            username = project.findProperty("artifacts.itemis.cloud.user") as String?
-            password = project.findProperty("artifacts.itemis.cloud.pw") as String?
+    
+    pom {
+        licenses {
+            val licensesFile = layout.buildDirectory.file("extracted-licenses.txt").get().asFile
+            if (licensesFile.exists() && licensesFile.length() > 0) {
+                licensesFile.readLines().forEach { line ->
+                    if (line.isNotBlank()) {
+                        val parts = line.split("|")
+                        val licenseName = parts[0]
+                        val licenseUrl = parts.getOrNull(1)?.takeIf { it.isNotEmpty() }
+                        
+                        license {
+                            name.set(licenseName)
+                            if (licenseUrl != null) {
+                                url.set(licenseUrl)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Fallback if licenses couldn't be extracted
+                license {
+                    name.set("Various")
+                    comments.set("This artifact bundles various third-party libraries under different licenses")
+                }
+            }
         }
     }
 }
 
 fun getenvRequired(name: String) =
     System.getenv(name) ?: throw GradleException("Environment variable '$name' must be set")
+
+// Ensure licenses are extracted before generating POM
+afterEvaluate {
+    tasks.named("generatePomFileForMpsPrereleasePublication").configure {
+        dependsOn(extractLicenses)
+        dependsOn(repackage)
+    }
+    
+    tasks.named("publishMpsPrereleasePublicationToMavenRepository").configure {
+        dependsOn(repackage)
+    }
+}
 
 tasks.publish {
     doLast {
