@@ -2,14 +2,22 @@ import de.undercouch.gradle.tasks.download.Download
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.*
+import com.itemis.gradle.spdx.SpdxLicenseMapper
+import com.itemis.gradle.spdx.JsonLicenseProvider
+import org.gradle.api.publish.maven.tasks.GenerateMavenPom
+
 
 plugins {
     `maven-publish`
     id("de.undercouch.download") version "5.5.0"
+    id("spdx-license-mapping") version "1.0.0"
 }
 
 val mpsGroupId = "com.jetbrains.mps"
 val mpsArtifactId = "mps-prerelease"
+
+// Third-party license file name
+val THIRD_PARTY_LICENSE_FILE = "third-party-libraries.json"
 
 version = object {
     override fun toString(): String {
@@ -51,9 +59,40 @@ val repackage by tasks.registering(Zip::class) {
     includeEmptyDirs = false
 }
 
+val extractThirdPartyLicenses by tasks.registering(Copy::class) {
+    val downloadedFile = download.map { it.outputFiles.single() }
+    
+    from(downloadedFile.map { zipTree(it) }) {
+        include("**/$THIRD_PARTY_LICENSE_FILE")
+        eachFile {
+            // Flatten the directory structure
+            path = name
+        }
+    }
+    into(layout.buildDirectory.dir("licenses"))
+    includeEmptyDirs = false
+    
+    doLast {
+        val outputFile = destinationDir.resolve(THIRD_PARTY_LICENSE_FILE)
+        if (!outputFile.exists()) {
+            throw GradleException("Failed to extract $THIRD_PARTY_LICENSE_FILE from downloaded ZIP - file not found in archive")
+        }
+    }
+}
+
 fun getArtifactDownloadUrl(): String {
     val artifactBuildId = getenvRequired("ARTIFACT_BUILD_ID")
     return "https://teamcity.jetbrains.com/guestAuth/app/rest/builds/id:${artifactBuildId}/artifacts/content/MPS-${version}.zip"
+}
+
+val repo = publishing.repositories.maven("https://artifacts.itemis.cloud/repository/maven-mps-prereleases") {
+    name = "Maven"
+    if (project.findProperty("artifacts.itemis.cloud.user") != null) {
+        credentials {
+            username = project.findProperty("artifacts.itemis.cloud.user") as String?
+            password = project.findProperty("artifacts.itemis.cloud.pw") as String?
+        }
+    }
 }
 
 fun doesArtifactExistInRepository(): Boolean {
@@ -90,21 +129,35 @@ fun doesArtifactExistInRepository(): Boolean {
 val prereleasePublication = publishing.publications.create<MavenPublication>("mpsPrerelease") {
     groupId = mpsGroupId
     artifactId = mpsArtifactId
-
-    artifact(repackage)
-}
-
-val repo = publishing.repositories.maven("https://artifacts.itemis.cloud/repository/maven-mps-prereleases") {
-    if (project.findProperty("artifacts.itemis.cloud.user") != null) {
-        credentials {
-            username = project.findProperty("artifacts.itemis.cloud.user") as String?
-            password = project.findProperty("artifacts.itemis.cloud.pw") as String?
+    
+    // Use Provider API - Gradle will automatically track the dependency
+    artifact(repackage.flatMap { it.archiveFile })
+    
+    pom {
+        withXml {
+            val licensesNode = asNode().appendNode("licenses")
+            
+            // Use the extracted license file from the extractThirdPartyLicenses task
+            // The file is accessed from the task's output directory
+            val thirdPartyJsonFile = extractThirdPartyLicenses.get().destinationDir.resolve(THIRD_PARTY_LICENSE_FILE)
+            
+            if (!thirdPartyJsonFile.exists()) {
+                throw GradleException("third-party-libraries.json not found at ${thirdPartyJsonFile.absolutePath} - cannot determine licenses")
+            }
+            
+            val licenseProvider = JsonLicenseProvider(thirdPartyJsonFile)
+            SpdxLicenseMapper.addLicensesToPom(licensesNode, licenseProvider)
         }
     }
 }
 
 fun getenvRequired(name: String) =
     System.getenv(name) ?: throw GradleException("Environment variable '$name' must be set")
+
+// Ensure license extraction happens before POM generation
+tasks.withType<GenerateMavenPom>().configureEach {
+    dependsOn(extractThirdPartyLicenses)
+}
 
 tasks.publish {
     doLast {

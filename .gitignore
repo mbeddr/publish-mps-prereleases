@@ -2,4 +2,4 @@
 /*/build/
 .teamcity/target/
 /.idea/
-/.gradle/
+/**/.gradle/
