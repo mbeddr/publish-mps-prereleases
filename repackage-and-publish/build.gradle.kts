@@ -10,7 +10,7 @@ import org.gradle.api.publish.maven.tasks.GenerateMavenPom
 plugins {
     `maven-publish`
     id("de.undercouch.download") version "5.5.0"
-    id("spdx-license-mapping") version "1.0.1-SNAPSHOT"
+    id("spdx-license-mapping") version "1.0.1"
 }
 
 val mpsGroupId = "com.jetbrains.mps"
