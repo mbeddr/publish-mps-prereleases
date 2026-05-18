@@ -1,4 +1,5 @@
 import org.jetbrains.teamcity.rest.Build
+import org.jetbrains.teamcity.rest.BuildId
 import org.jetbrains.teamcity.rest.ProjectId
 import org.jetbrains.teamcity.rest.TeamCityInstanceFactory
 import java.util.logging.Level
@@ -9,8 +10,34 @@ val logger: Logger = Logger.getLogger("app")
 
 fun extractVersionNumberFromBuild(build: Build): String {
     val buildNumber = build.buildNumber ?: throw IllegalArgumentException("Build does not have a build number: $build")
-    return Regex("[0-9.]+").find(buildNumber)?.groups?.get(0)?.value
-        ?: throw IllegalArgumentException("Could not extract version number from $buildNumber")
+    return Regex("[0-9.]+").find(buildNumber)?.value
+        ?: throw IllegalArgumentException("Could not extract version number from build number '$buildNumber'")
+}
+
+fun parseBuildIdFromUrl(url: String): String {
+    // Expected format: https://teamcity.jetbrains.com/buildConfiguration/<configId>/<buildId>
+    val match = Regex("/([0-9]+)$").find(url.trimEnd('/'))
+        ?: throw IllegalArgumentException(
+            "Could not extract build ID from URL: $url\n" +
+                "Expected format: https://teamcity.jetbrains.com/buildConfiguration/<configId>/<buildId>"
+        )
+    return match.groupValues[1]
+}
+
+private fun findBuildByUrl(buildUrl: String): Build {
+    val buildId = parseBuildIdFromUrl(buildUrl)
+    logger.info("Extracted build ID: $buildId")
+
+    val tc = TeamCityInstanceFactory.guestAuth("https://teamcity.jetbrains.com")
+    val build = tc.build(BuildId(buildId))
+
+    logger.info("Found build: ${build.buildNumber} (status: ${build.status})")
+
+    if (build.status?.name != "SUCCESS") {
+        logger.warning("Build $buildId has status '${build.status}' (not SUCCESS)")
+    }
+
+    return build
 }
 
 private fun findLastSuccessfulBuild(): Build {
@@ -49,11 +76,6 @@ private fun findLastSuccessfulBuild(): Build {
 fun main(args: Array<String>) {
     logger.level = Level.INFO
 
-    if (args.size > 1) {
-        System.err.println("Usage: find_latest_version [--quiet|--info|--debug]")
-        exitProcess(1)
-    }
-
     if (args.size == 1) {
         when (args[0]) {
             "--quiet" -> logger.level = Level.OFF
@@ -63,18 +85,25 @@ fun main(args: Array<String>) {
                 Logger.getLogger("").handlers.forEach { it.level = logger.level }
             }
             else -> {
-                System.err.println("Unknown argument: $args[0]")
+                System.err.println("Unknown argument: ${args[0]}")
                 exitProcess(1)
             }
         }
     }
 
-    logger.info("Looking for latest successful MPS build")
-    val build = findLastSuccessfulBuild()
+    val buildUrl: String? = System.getenv("ARTIFACT_BUILD_URL")
+
+    val build = if (!buildUrl.isNullOrBlank()) {
+        logger.info("Resolving build from URL: $buildUrl")
+        findBuildByUrl(buildUrl)
+    } else {
+        logger.info("Looking for latest successful MPS build")
+        findLastSuccessfulBuild()
+    }
 
     val artifactVersion = extractVersionNumberFromBuild(build)
 
     println("##teamcity[setParameter name='env.ARTIFACT_BUILD_ID' value='${build.id.stringId}']")
-    println("##teamcity[setParameter name='env.ARTIFACT_VERSION' value='${artifactVersion}']")
-    println("##teamcity[buildStatus text='Latest MPS prerelease build is ${artifactVersion}']")
+    println("##teamcity[setParameter name='env.ARTIFACT_VERSION' value='$artifactVersion']")
+    println("##teamcity[buildStatus text='MPS $artifactVersion (build ${build.id.stringId})']")
 }

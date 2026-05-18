@@ -1,8 +1,6 @@
 import jetbrains.buildServer.configs.kotlin.*
 import jetbrains.buildServer.configs.kotlin.buildSteps.GradleBuildStep
 import jetbrains.buildServer.configs.kotlin.buildSteps.gradle
-import jetbrains.buildServer.configs.kotlin.buildSteps.kotlinScript
-import jetbrains.buildServer.configs.kotlin.buildSteps.script
 import jetbrains.buildServer.configs.kotlin.triggers.schedule
 import jetbrains.buildServer.configs.kotlin.ui.add
 
@@ -41,7 +39,7 @@ object Publish : BuildType({
     description = "Download latest successful MPS build from JetBrains TeamCity and upload to artifacts.itemis.cloud"
 
     enablePersonalBuilds = false
-    type = BuildTypeSettings.Type.DEPLOYMENT
+    type = Type.DEPLOYMENT
     maxRunningBuilds = 1
 
     vcs {
@@ -50,15 +48,20 @@ object Publish : BuildType({
 
     params {
         param("env.teamcity_build_branch", "unused")
+        text(
+            "env.ARTIFACT_BUILD_URL",
+            "",
+            display = ParameterDisplay.PROMPT,
+            label = "Build URL",
+            description = "Optional: URL of a build on teamcity.jetbrains.com, e.g. https://teamcity.jetbrains.com/buildConfiguration/MPS_20251_Distribution_DownloadableArtifacts/6131521. Leave empty to auto-detect the latest build.",
+            allowEmpty = true,
+        )
     }
 
     steps {
         gradle {
-            tasks = ":find-latest-version:run"
-            conditions {
-                doesNotExist("env.ARTIFACT_VERSION")
-                doesNotExist("env.ARTIFACT_BUILD_ID")
-            }
+            name = "Find build information"
+            tasks = ":find-build-info:run"
         }
         gradle {
             tasks = ":repackage-and-publish:checkAlreadyPublished"

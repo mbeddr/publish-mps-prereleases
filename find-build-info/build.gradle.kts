@@ -23,6 +23,6 @@ dependencies {
 }
 
 tasks.run.configure {
-    mainClass = "Find_latest_versionKt"
+    mainClass = "Find_build_infoKt"
     args("--info")
 }

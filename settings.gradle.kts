@@ -7,5 +7,5 @@ pluginManagement {
 
 rootProject.name = "publish-mps-prereleases"
 
-include(":find-latest-version")
+include(":find-build-info")
 include(":repackage-and-publish")
