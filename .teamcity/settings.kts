@@ -71,6 +71,7 @@ object Publish : BuildType({
                 doesNotEqual("alreadyPublished", "true")
             }
             tasks = ":repackage-and-publish:publish"
+            gradleParams = "--info"
         }
 
         // Set the JDK for all Gradle steps to JDK 17-x64
