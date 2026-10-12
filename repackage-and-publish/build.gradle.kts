@@ -129,7 +129,7 @@ fun <T> repositoryRequest(url: URL, method: String, readResponse: (HttpURLConnec
     val connection = url.openConnection() as HttpURLConnection
     connection.requestMethod = method
     connection.connectTimeout = 30_000
-    connection.readTimeout = 30_000
+    connection.readTimeout = 60_000
     connection.instanceFollowRedirects = false
     val credentials = repo.credentials
     if (!credentials.username.isNullOrEmpty() && !credentials.password.isNullOrEmpty()) {
