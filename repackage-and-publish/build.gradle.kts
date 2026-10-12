@@ -1,10 +1,13 @@
 import de.undercouch.gradle.tasks.download.Download
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import java.util.*
+import groovy.json.JsonSlurper
 import com.itemis.gradle.spdx.SpdxLicenseMapper
 import com.itemis.gradle.spdx.JsonLicenseProvider
 import org.gradle.api.publish.maven.tasks.GenerateMavenPom
+import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 
 
 plugins {
@@ -15,6 +18,8 @@ plugins {
 
 val mpsGroupId = "com.jetbrains.mps"
 val mpsArtifactId = "mps-prerelease"
+val jbrArtifactId = "mps-jbr"
+val repositoryName = "maven-mps-prereleases"
 
 // Third-party license file name
 val THIRD_PARTY_LICENSE_FILE = "third-party-libraries.json"
@@ -27,7 +32,9 @@ version = object {
 
 tasks.register("checkAlreadyPublished") {
     doLast {
-        val alreadyPublished = doesArtifactExistInRepository()
+        val prereleasePublished = doesArtifactExistInRepository(mpsArtifactId)
+        val jbrPublished = doesArtifactExistInRepository(jbrArtifactId)
+        val alreadyPublished = prereleasePublished && jbrPublished
         println("##teamcity[setParameter name='alreadyPublished' value='$alreadyPublished']")
 
         val status = if (alreadyPublished)
@@ -108,7 +115,7 @@ fun getArtifactDownloadUrl(): String {
     return "https://teamcity.jetbrains.com/guestAuth/app/rest/builds/id:${artifactBuildId}/artifacts/content/MPS-${version}.zip"
 }
 
-val repo = publishing.repositories.maven("https://artifacts.itemis.cloud/repository/maven-mps-prereleases") {
+val repo = publishing.repositories.maven("https://artifacts.itemis.cloud/repository/$repositoryName") {
     name = "Maven"
     if (project.findProperty("artifacts.itemis.cloud.user") != null) {
         credentials {
@@ -118,34 +125,92 @@ val repo = publishing.repositories.maven("https://artifacts.itemis.cloud/reposit
     }
 }
 
-fun doesArtifactExistInRepository(): Boolean {
-    val url =
-        URL("${repo.url}/${mpsGroupId.replace('.', '/')}/${mpsArtifactId}/${version}/${mpsArtifactId}-${version}.pom")
-    logger.info("Checking URL $url")
-
+fun <T> repositoryRequest(url: URL, method: String, readResponse: (HttpURLConnection) -> T): T {
     val connection = url.openConnection() as HttpURLConnection
+    connection.requestMethod = method
+    connection.connectTimeout = 30_000
+    connection.readTimeout = 30_000
+    connection.instanceFollowRedirects = false
     val credentials = repo.credentials
     if (!credentials.username.isNullOrEmpty() && !credentials.password.isNullOrEmpty()) {
-        logger.info("Using Basic authentication with username ${credentials.username}")
         val basicHeader = "Basic " + Base64.getEncoder()
             .encodeToString("${credentials.username}:${credentials.password}".toByteArray())
         connection.setRequestProperty("Authorization", basicHeader)
     }
 
     try {
-        connection.requestMethod = "HEAD"
-        connection.doOutput = false
-
-        val responseCode = connection.responseCode
-        logger.info("Received HTTP response code $responseCode")
-
-        return when (responseCode) {
-            200 -> true
-            404 -> false
-            else -> throw RuntimeException("Server returned unexpected response code $responseCode for HEAD $url")
-        }
+        return readResponse(connection)
     } finally {
         connection.disconnect()
+    }
+}
+
+fun doesArtifactExistInRepository(artifactId: String, extension: String = "pom"): Boolean {
+    val url = URL("${repo.url}/${mpsGroupId.replace('.', '/')}/$artifactId/$version/$artifactId-$version.$extension")
+    logger.info("Checking URL $url")
+    return repositoryRequest(url, "HEAD") { connection ->
+        when (val responseCode = connection.responseCode) {
+            200 -> true
+            404 -> false
+            else -> throw GradleException("Server returned unexpected response code $responseCode for HEAD $url")
+        }
+    }
+}
+
+fun prereleaseComponentIds(): List<String> {
+    val componentIds = mutableListOf<String>()
+    var continuationToken: String? = null
+    do {
+        val parameters = linkedMapOf(
+            "repository" to repositoryName,
+            "maven.groupId" to mpsGroupId,
+            "maven.artifactId" to mpsArtifactId,
+            "maven.baseVersion" to version.toString(),
+        )
+        continuationToken?.let { parameters["continuationToken"] = it }
+        val query = parameters.entries.joinToString("&") { (key, value) ->
+            "${URLEncoder.encode(key, "UTF-8")}=${URLEncoder.encode(value, "UTF-8")}"
+        }
+        val url = repo.url.resolve("/service/rest/v1/search?$query").toURL()
+        val response = repositoryRequest(url, "GET") { connection ->
+            if (connection.responseCode != 200) {
+                throw GradleException("Server returned HTTP ${connection.responseCode} when searching for incomplete MPS $version")
+            }
+            connection.inputStream.bufferedReader().use { JsonSlurper().parse(it) as Map<*, *> }
+        }
+        val items = response["items"] as List<*>
+        for (item in items) {
+            val component = item as Map<*, *>
+            // Search results must match the exact coordinates before they can be deleted.
+            if (component["repository"] == repositoryName && component["group"] == mpsGroupId &&
+                component["name"] == mpsArtifactId && component["version"] == version.toString()) {
+                componentIds.add(component["id"] as String)
+            }
+        }
+        continuationToken = response["continuationToken"] as String?
+    } while (continuationToken != null)
+    return componentIds
+}
+
+fun deleteIncompletePrerelease() {
+    // Keep a publication whose POM appeared after the publish task's existence check.
+    if (doesArtifactExistInRepository(mpsArtifactId)) {
+        throw GradleException("MPS $version POM appeared before cleanup; rerun to skip the completed publication")
+    }
+    for (componentId in prereleaseComponentIds()) {
+        logger.lifecycle("Deleting incomplete $mpsGroupId:$mpsArtifactId:$version (including its assets and checksums)")
+        val url = repo.url.resolve("/service/rest/v1/components/${URLEncoder.encode(componentId, "UTF-8")}").toURL()
+        repositoryRequest(url, "DELETE") { connection ->
+            when (val responseCode = connection.responseCode) {
+                204, 404 -> Unit
+                403 -> throw GradleException("Cannot delete incomplete MPS $version: the publishing account needs delete permission (HTTP 403)")
+                else -> throw GradleException("Server returned HTTP $responseCode when deleting incomplete MPS $version")
+            }
+        }
+    }
+    if (prereleaseComponentIds().isNotEmpty() || doesArtifactExistInRepository(mpsArtifactId) ||
+        doesArtifactExistInRepository(mpsArtifactId, "zip")) {
+        throw GradleException("Incomplete MPS $version still exists after cleanup; refusing to publish")
     }
 }
 
@@ -202,7 +267,7 @@ fun jbrJcefVersion(): String {
 
 val jbrPublication = publishing.publications.create<MavenPublication>("mpsJbr") {
     groupId = mpsGroupId
-    artifactId = "mps-jbr"
+    artifactId = jbrArtifactId
 
     pom {
         packaging = "pom"
@@ -225,6 +290,15 @@ tasks.named<GenerateMavenPom>("generatePomFileForMpsPrereleasePublication") {
 }
 tasks.named<GenerateMavenPom>("generatePomFileForMpsJbrPublication") {
     dependsOn(extractBuildProperties)
+}
+
+tasks.named<PublishToMavenRepository>("publishMpsPrereleasePublicationToMavenRepository") {
+    onlyIf("the prerelease POM is missing") { !doesArtifactExistInRepository(mpsArtifactId) }
+    // Publishing task dependencies prepare the ZIP and POM before cleanup runs.
+    doFirst { deleteIncompletePrerelease() }
+}
+tasks.named<PublishToMavenRepository>("publishMpsJbrPublicationToMavenRepository") {
+    onlyIf("the JBR POM is missing") { !doesArtifactExistInRepository(jbrArtifactId) }
 }
 
 tasks.publish {
